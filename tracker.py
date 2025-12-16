@@ -17,7 +17,7 @@ BADGE_TIERS = {
 }
 
 # Mood Definitions and Value Mapping (for chart plotting)
-MOOD_OPTIONS = {
+MOOD_OPTIONS_MAP = {
     1: "☺️ Happy",
     2: "😑 Meh",
     3: "😞 Disappointed",
@@ -30,27 +30,25 @@ MOOD_OPTIONS = {
     10: "🤧 Sick"
 }
 
-# Map emoji index to a numerical value for charting (1=Lowest, 10=Highest)
-# We will use the index number directly as the chart value.
-MOOD_VALUE_MAP = {index: index for index in MOOD_OPTIONS.keys()}
+# Add a default option identifier (0)
+UNSELECTED_MOOD_KEY = 0
+UNSELECTED_MOOD_LABEL = "--- Select Your Mood ---"
 
-
+# --- Data Loading and Saving Functions (No Change) ---
 def load_data():
     """Loads the habit data from CSV."""
     if not os.path.exists(DATA_FILE):
-        # Add Mood column to initial DataFrame structure
         return pd.DataFrame(columns=["Date", "Habit", "Status", "Is_Active", "Daily_Reflection", "Mood"])
     
     df = pd.read_csv(DATA_FILE)
     df["Date"] = df["Date"].astype(str)
     
-    # Ensure necessary columns exist for backward compatibility
     if 'Is_Active' not in df.columns:
         df['Is_Active'] = True
     if 'Daily_Reflection' not in df.columns:
         df['Daily_Reflection'] = ""
-    if 'Mood' not in df.columns: # Add new column if missing
-        df['Mood'] = 0 # Default to 0 (No Mood Set)
+    if 'Mood' not in df.columns:
+        df['Mood'] = UNSELECTED_MOOD_KEY
     
     return df
 
@@ -103,7 +101,7 @@ def get_badge(streak):
     
     return f"{badge} ({streak} Days)"
 
-# --- Heatmap Generation Function using Plotly ---
+# --- Heatmap Generation Function (No Change) ---
 def create_heatmap_plotly(df, habit_name):
     """Generates a calendar heatmap for a specific habit using Plotly."""
     
@@ -152,24 +150,21 @@ def create_heatmap_plotly(df, habit_name):
 
     st.plotly_chart(fig, use_container_width=True)
 
-# --- Mood Chart Function ---
+# --- Mood Chart Function (Minor Change) ---
 def create_mood_chart(df):
     """Generates a monthly line chart of the user's mood."""
     
-    # Filter for unique mood entries per day
-    mood_data = df[df['Mood'] != 0].copy()
+    mood_data = df[df['Mood'] != UNSELECTED_MOOD_KEY].copy()
     mood_data['Date'] = pd.to_datetime(mood_data['Date'])
     
-    # Select only the first mood recorded for each day
     mood_series = mood_data.drop_duplicates(subset='Date', keep='first').set_index('Date')['Mood']
 
     if mood_series.empty:
         st.info("No mood entries found yet.")
         return
     
-    # Map the numerical mood back to the emoji label for better tooltip/display
     mood_df = pd.DataFrame({'Mood_Value': mood_series.values, 'Date': mood_series.index})
-    mood_df['Mood_Label'] = mood_df['Mood_Value'].map({k: v.split(' ')[0] for k, v in MOOD_OPTIONS.items()})
+    mood_df['Mood_Label'] = mood_df['Mood_Value'].map({k: v.split(' ')[0] for k, v in MOOD_OPTIONS_MAP.items()})
 
     fig = px.line(
         mood_df,
@@ -177,18 +172,16 @@ def create_mood_chart(df):
         y="Mood_Value",
         markers=True,
         title="Monthly Mood Trend",
-        line_shape='spline' # Smoother line
+        line_shape='spline'
     )
 
-    # Customize the Y-axis to show the emoji labels instead of numbers
     fig.update_yaxes(
-        tickvals=list(MOOD_OPTIONS.keys()),
-        ticktext=[v.split(' ')[0] for v in MOOD_OPTIONS.values()], # Show only the emoji
+        tickvals=list(MOOD_OPTIONS_MAP.keys()),
+        ticktext=[v.split(' ')[0] for v in MOOD_OPTIONS_MAP.values()],
         title='Mood',
-        range=[min(MOOD_OPTIONS.keys()) - 0.5, max(MOOD_OPTIONS.keys()) + 0.5]
+        range=[min(MOOD_OPTIONS_MAP.keys()) - 0.5, max(MOOD_OPTIONS_MAP.keys()) + 0.5]
     )
 
-    # Add tooltips to show the full description
     fig.update_traces(
         hovertemplate="Date: %{x}<br>Mood: %{customdata}<extra></extra>",
         customdata=mood_df['Mood_Label']
@@ -198,20 +191,20 @@ def create_mood_chart(df):
     st.plotly_chart(fig, use_container_width=True)
 
 
-# --- App Layout ---
+# --- App Layout (No Change until Mood Reflector) ---
 st.set_page_config(page_title="Visual Habit Tracker", page_icon="📝", layout="wide")
 st.title("📝 Gamified Habit Tracker & Reflection")
 
 # Load data
 df = load_data()
 
-# --- Sidebar: Habit Management ---
+# --- Sidebar: Habit Management (No Change) ---
 st.sidebar.header("➕ Add New Habit")
 new_habit = st.sidebar.text_input("Habit Name:", placeholder="e.g., Meditate for 10 min")
 
 if st.sidebar.button("Add Habit"):
     if new_habit and new_habit not in get_all_habits(df):
-        new_row = pd.DataFrame([{"Date": str(date.today()), "Habit": new_habit, "Status": False, "Is_Active": True, "Daily_Reflection": "", "Mood": 0}])
+        new_row = pd.DataFrame([{"Date": str(date.today()), "Habit": new_habit, "Status": False, "Is_Active": True, "Daily_Reflection": "", "Mood": UNSELECTED_MOOD_KEY}])
         df = pd.concat([df, new_row], ignore_index=True)
         save_data(df)
         st.sidebar.success(f"Added: {new_habit}")
@@ -221,7 +214,6 @@ st.sidebar.markdown("---")
 st.sidebar.header("🗑️ Archive/Delete Habits")
 all_habits = get_all_habits(df)
 
-# ... (Rest of sidebar logic for Archive/Delete remains the same) ...
 if all_habits:
     habit_to_manage = st.sidebar.selectbox(
         "Select Habit to manage:",
@@ -251,7 +243,7 @@ else:
     st.sidebar.info("No habits to manage yet.")
 
 
-# --- Main Section: Tracking ---
+# --- Main Section: Tracking (No Change) ---
 st.header("📅 Daily Log")
 
 col1, col2 = st.columns([1, 3])
@@ -283,7 +275,7 @@ else:
             
             if clicked != is_checked:
                 if df[mask].empty:
-                    new_entry = pd.DataFrame([{"Date": str_date, "Habit": habit, "Status": clicked, "Is_Active": True, "Daily_Reflection": "", "Mood": 0}])
+                    new_entry = pd.DataFrame([{"Date": str_date, "Habit": habit, "Status": clicked, "Is_Active": True, "Daily_Reflection": "", "Mood": UNSELECTED_MOOD_KEY}])
                     df = pd.concat([df, new_entry], ignore_index=True)
                 else:
                     df.loc[mask, 'Status'] = clicked
@@ -293,39 +285,46 @@ else:
             st.markdown("---")
 
 
-# --- Mood Reflector Input ---
+# --- Mood Reflector Input (CRITICAL FIX APPLIED HERE) ---
 st.markdown("---")
 st.header("✨ Mood Reflector")
 
 # Extract the current mood value for the selected date
-current_mood_mask = (df["Date"] == str_date) & (df["Mood"] != 0)
-current_mood_value = 0
+current_mood_mask = (df["Date"] == str_date) & (df["Mood"] != UNSELECTED_MOOD_KEY)
+current_mood_value = UNSELECTED_MOOD_KEY
 if not df[current_mood_mask].empty:
     current_mood_value = df.loc[current_mood_mask, 'Mood'].iloc[0]
 
-# Prepare options for the selectbox
-mood_list = [f"{index} {label.split(' ')[0]}" for index, label in MOOD_OPTIONS.items()]
-mood_display_options = ["(Select Mood)"] + [MOOD_OPTIONS[i] for i in sorted(MOOD_OPTIONS.keys())]
+# --- START FIX: Use a dictionary mapping for simplified and safe selection ---
+# 1. Create the keys (the numerical values used to identify the mood)
+mood_keys = [UNSELECTED_MOOD_KEY] + sorted(MOOD_OPTIONS_MAP.keys())
 
-# Determine the index of the current mood for the selectbox default value
-if current_mood_value != 0:
-    default_index = list(MOOD_OPTIONS.keys()).index(current_mood_value) + 1 # +1 for the "(Select Mood)" option
+# 2. Create the labels (what the user sees)
+mood_labels = [UNSELECTED_MOOD_LABEL] + [f"{k} {MOOD_OPTIONS_MAP[k].split(' ')[0]}" for k in sorted(MOOD_OPTIONS_MAP.keys())]
+
+# 3. Create a dictionary to map the visible label back to the safe key
+label_to_key_map = dict(zip(mood_labels, mood_keys))
+
+# 4. Determine the default index for the selectbox
+if current_mood_value != UNSELECTED_MOOD_KEY:
+    # Find the current label in the options list based on the stored value
+    current_label = f"{current_mood_value} {MOOD_OPTIONS_MAP[current_mood_value].split(' ')[0]}"
+    default_index = mood_labels.index(current_label)
 else:
     default_index = 0
 
 selected_mood_label = st.selectbox(
     "How was your general mood today?",
-    options=mood_display_options,
+    options=mood_labels,
     index=default_index,
-    format_func=lambda x: x.split(' ')[0], # Show only the emoji
+    # This format_func ensures only the emoji is seen, keeping the key safe in the label
+    format_func=lambda x: x.split(' ')[1] if x != UNSELECTED_MOOD_LABEL else x, 
     key=f"mood_select_{str_date}"
 )
 
-# Extract the selected mood index (1-10)
-selected_mood_value = 0
-if selected_mood_label != "(Select Mood)":
-    # The format is "1 ☺️ Happy", so we extract the first part (the index)
-    selected_mood_value = int(selected_mood_label.split(' ')[0])
+# 5. Safely retrieve the numerical value using the map
+selected_mood_value = label_to_key_map.get(selected_mood_label, UNSELECTED_MOOD_KEY)
+# --- END FIX ---
 
 # Update Data
 if selected_mood_value != current_mood_value:
@@ -338,11 +337,16 @@ if selected_mood_value != current_mood_value:
         df = pd.concat([df, new_entry], ignore_index=True)
         
     save_data(df)
-    st.success(f"Mood recorded as {selected_mood_label.split(' ')[0]}!")
+    
+    if selected_mood_value != UNSELECTED_MOOD_KEY:
+        st.success(f"Mood recorded as {MOOD_OPTIONS_MAP[selected_mood_value].split(' ')[0]}!")
+    else:
+        st.info("Mood entry cleared.")
+        
     st.rerun()
 
 
-# --- Daily Reflection Section ---
+# --- Daily Reflection Section (No Change) ---
 st.markdown("---")
 st.header("💡 Daily Reflection")
 
@@ -370,7 +374,7 @@ if reflection_input != current_reflection:
         st.warning("No habits tracked today. Reflection not fully saved yet.")
     
 
-# --- Visual Graphics Section ---
+# --- Visual Graphics Section (No Change) ---
 st.header("📊 Progress Analytics")
 
 if not df.empty and df["Status"].sum() > 0:
@@ -379,7 +383,6 @@ if not df.empty and df["Status"].sum() > 0:
     analysis_df = df[df['Status'].notna()].copy() 
 
     with tab1:
-        # Leaderboard
         streak_data = []
         for h in get_all_habits(df):
             s = calculate_streak(df, h)
@@ -391,7 +394,6 @@ if not df.empty and df["Status"].sum() > 0:
         st.dataframe(leaderboard_df, use_container_width=True, hide_index=True)
 
     with tab2:
-        # Daily Trends
         st.subheader("Daily Productivity")
         daily_progress = analysis_df[analysis_df["Status"] == True].groupby("Date")["Status"].count()
         daily_progress.index = pd.to_datetime(daily_progress.index)
@@ -399,7 +401,6 @@ if not df.empty and df["Status"].sum() > 0:
         st.bar_chart(daily_progress, color="#ff4b4b")
         
     with tab3:
-        # Heatmap (Plotly)
         st.subheader("Visualizing Consistency")
         
         selected_heatmap_habit = st.selectbox(
@@ -410,7 +411,6 @@ if not df.empty and df["Status"].sum() > 0:
             create_heatmap_plotly(analysis_df, selected_heatmap_habit)
             
     with tab4:
-        # NEW Mood Chart
         st.subheader("Monthly Mood Tracking")
         create_mood_chart(df)
         
