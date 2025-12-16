@@ -1,5 +1,5 @@
 streamlit
 pandas
-matplotlib
 plotly
+streamlit-gsheets # NEW Dependency
 
