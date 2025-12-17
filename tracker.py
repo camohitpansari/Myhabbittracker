@@ -1,16 +1,14 @@
-uimport streamlit as st
+import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 import os
 import plotly.express as px
 import plotly.graph_objects as go
-from streamlit_gsheets import GSheetsConnection # NEW IMPORT
 
 # --- Configuration & Setup ---
-# *** IMPORTANT: Replace the URL below with the SHAREABLE LINK of your Google Sheet ***
-GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1ZBukf2CZVvCKWhuDq6VHvZNKem-ZQ_caT8irYUiDHy0/edit?usp=drivesdk" 
+# The GOOGLE_SHEET_URL is now located in your Streamlit Secrets, NOT in the code!
 
-# Badge Definitions (No Change)
+# Badge Definitions 
 BADGE_TIERS = {
     1: "🌟 New Start",
     7: "🏆 Bronze Star",
@@ -18,7 +16,7 @@ BADGE_TIERS = {
     90: "🥇 Gold Titan"
 }
 
-# Mood Definitions and Value Mapping (No Change)
+# Mood Definitions and Value Mapping 
 MOOD_OPTIONS_MAP = {
     1: "☺️ Happy",
     2: "😑 Meh",
@@ -35,42 +33,45 @@ MOOD_OPTIONS_MAP = {
 UNSELECTED_MOOD_KEY = 0
 UNSELECTED_MOOD_LABEL = "--- Select Your Mood ---"
 
-# --- NEW Data Loading and Saving Functions using Google Sheets ---
-# Initialize connection and cache data to prevent excessive reloads
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- Data Loading and Saving Functions using Streamlit Native GSheets ---
+# Initialize connection to the GSheets resource defined in secrets.toml
+conn = st.connection("gsheets", type="service_account")
 REQUIRED_COLUMNS = ["Date", "Habit", "Status", "Is_Active", "Daily_Reflection", "Mood"]
 
-@st.cache_data(ttl=5) # Cache data for 5 seconds
+@st.cache_data(ttl=5) 
 def load_data():
-    """Loads the habit data from Google Sheets."""
+    """Loads the habit data from Google Sheets using native connector."""
     try:
-        df = conn.read(spreadsheet=GOOGLE_SHEET_URL, worksheet="TrackingLog", usecols=REQUIRED_COLUMNS, ttl=5)
-        df["Date"] = df["Date"].astype(str)
-        # Ensure 'Mood' column is numeric/integer
-        df['Mood'] = pd.to_numeric(df['Mood'], errors='coerce').fillna(UNSELECTED_MOOD_KEY).astype(int)
+        # We read from the connection defined in secrets.toml, which includes the spreadsheet_url
+        # If your sheet name is not "TrackingLog", change it here
+        df = conn.read(worksheet="TrackingLog", usecols=REQUIRED_COLUMNS, ttl=5)
         
-        # Ensure all required columns exist
+        # Data Cleaning and Type conversion
+        df = df.dropna(how='all') 
+        df["Date"] = df["Date"].astype(str)
+        df['Mood'] = pd.to_numeric(df['Mood'], errors='coerce').fillna(UNSELECTED_MOOD_KEY).astype(int)
+        df['Is_Active'] = df['Is_Active'].apply(lambda x: True if str(x).lower() in ('true', '1') else False) # Robust boolean conversion
+        
+        # Ensure all required columns exist (for safety with new data)
         for col in REQUIRED_COLUMNS:
             if col not in df.columns:
                 df[col] = ''
         
         return df
     except Exception as e:
-        st.error(f"Error loading data from Google Sheets: {e}")
-        st.info("Please ensure your Google Sheet URL is correct and the Sheet is shared as 'Editor'.")
-        # Return an empty dataframe to allow the app to run
+        st.error(f"Error loading data from Google Sheets. Ensure Secrets are configured correctly: {e}")
         return pd.DataFrame(columns=REQUIRED_COLUMNS)
 
 def save_data(df):
     """Saves the dataframe back to Google Sheets."""
     try:
-        conn.write(df=df, spreadsheet=GOOGLE_SHEET_URL, worksheet="TrackingLog")
-        # Clear cache to force reload on the next run
-        st.cache_data.clear()
+        conn.write(df=df, worksheet="TrackingLog")
+        st.cache_data.clear() 
     except Exception as e:
-        st.error(f"Error saving data to Google Sheets: {e}")
+        st.error(f"Error saving data to Google Sheets. Check permissions: {e}")
 
-# --- Helper Functions (No Major Change) ---
+
+# --- Helper Functions (No Change) ---
 def get_active_habits(df):
     if df.empty:
         return []
@@ -104,24 +105,36 @@ def get_badge(streak):
             break
     return f"{badge} ({streak} Days)"
 
-# --- Visualization Functions (No Major Change) ---
+# --- Heatmap Generation Function (NEW PLOTLY VERSION) ---
 def create_heatmap_plotly(df, habit_name):
-    # ... (Code for Heatmap remains the same) ...
+    """Generates a calendar heatmap for a specific habit using Plotly."""
+    
     heatmap_data = df[(df['Habit'] == habit_name) & (df['Status'] == True)].copy()
+    
     if heatmap_data.empty:
         st.info(f"No successful logs yet for {habit_name} to generate a heatmap.")
         return
+
     heatmap_data['Date'] = pd.to_datetime(heatmap_data['Date'])
-    start_date = date.today() - timedelta(days=365)
-    full_range = pd.date_range(start=start_date, end=date.today(), freq='D')
+    
+    # 1. Create a full date range for the last year
+    end_date = date.today()
+    start_date = end_date - timedelta(days=365)
+    full_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    
+    # 2. Count successes per day and reindex to the full range
     successes = heatmap_data.set_index('Date')['Status'].resample('D').count().reindex(full_range, fill_value=0)
-    dates = successes.index
-    levels = successes.values
-    df_plot = pd.DataFrame({'Date': dates, 'Count': levels})
+    
+    df_plot = pd.DataFrame({'Date': successes.index, 'Count': successes.values})
+
+    # 3. Calculate necessary fields for the calendar layout
     df_plot['DayOfWeek'] = df_plot['Date'].dt.day_name().str[:3]
     df_plot['Week'] = df_plot['Date'].dt.isocalendar().week.astype(int)
+    
+    # Define order for visual layout
     day_order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
     
+    # 4. Create the Heatmap figure
     fig = go.Figure(data=go.Heatmap(
         x=df_plot['DayOfWeek'],
         y=df_plot['Week'], 
@@ -131,7 +144,10 @@ def create_heatmap_plotly(df, habit_name):
         text=[f"Date: {d.strftime('%Y-%m-%d')}<br>Completed: {c} Times" for d, c in zip(df_plot['Date'], df_plot['Count'])],
         ygap=3,
         xgap=3,
+        zmin=0,
+        zmax=1, # Assume max 1 completion per day, adjust if habits are tracked multiple times
     ))
+    
     fig.update_layout(
         title=f'Consistency Heatmap for: {habit_name} (Last Year)',
         xaxis=dict(title='Day of Week', categoryorder='array', categoryarray=day_order),
@@ -139,10 +155,13 @@ def create_heatmap_plotly(df, habit_name):
         height=600,
         margin=dict(t=50, b=0, l=0, r=0)
     )
+
     st.plotly_chart(fig, use_container_width=True)
 
+# --- Mood Chart Function (No Change) ---
 def create_mood_chart(df):
-    # ... (Code for Mood Chart remains the same) ...
+    """Generates a monthly line chart of the user's mood."""
+    
     mood_data = df[df['Mood'] != UNSELECTED_MOOD_KEY].copy()
     mood_data['Date'] = pd.to_datetime(mood_data['Date'])
     mood_series = mood_data.drop_duplicates(subset='Date', keep='first').set_index('Date')['Mood']
@@ -169,14 +188,10 @@ def create_mood_chart(df):
     st.plotly_chart(fig, use_container_width=True)
 
 
-# --- App Layout (Daily Log and Sidebar logic need minor adjustments to use new Mood keys) ---
-
-# ... (The rest of the app logic remains largely the same, but uses the new data functions) ...
 # --- App Layout ---
 st.set_page_config(page_title="Visual Habit Tracker", page_icon="📝", layout="wide")
 st.title("📝 Gamified Habit Tracker & Reflection")
 
-# Load data (Uses the new Google Sheets function)
 df = load_data()
 
 # --- Sidebar: Habit Management ---
@@ -398,4 +413,3 @@ if not df.empty and df["Status"].sum() > 0:
         
 else:
     st.info("Start marking your habits to see the analytics!")
-
