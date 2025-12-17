@@ -1,3 +1,6 @@
 streamlit
 pandas
+plotly
 google-cloud-bigquery # NEW DEPENDENCY DB-DTYPES # NEW DEPENDENCY
+db-dtypes
+SQLAlchemy
